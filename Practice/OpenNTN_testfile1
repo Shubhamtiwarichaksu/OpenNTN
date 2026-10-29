@@ -1,0 +1,132 @@
+"""
+Step 0: single satellite (BS) <-> single UT link, static topology.
+
+Goal of this script: nothing  — just prove the OpenNTN + Sionna
+install works end to end, and print every intermediate tensor so you
+can see exactly what gen_single_sector_topology / set_topology / the
+channel call actually produce. This is the "one frozen snapshot"
+baseline. Once this runs and makes sense, we wrap it in a time loop.
+
+Assumes OpenNTN has been dropped into your Sionna install as per the
+README (from . import tr38811 in Sionna's channel/__init__.py).
+"""
+
+import tensorflow as tf
+import numpy as np
+
+# Antenna arrays are reused directly from Sionna's 38.901 implementation
+#from sionna.phy.channel.tr38901 import PanelArray
+
+# Pick ONE of these depending on which scenario file you actually have
+# installed/imported in your local copy (dense_urban.py / urban.py / sub_urban.py)
+from OpenNTN.urban import Urban
+from OpenNTN.antenna import PanelArray 
+
+#tf.random.set_seed(42)
+
+from OpenNTN.utils import (
+    gen_single_sector_topology,
+    time_lag_discrete_time_channel,
+    cir_to_time_channel,
+)
+
+# ---------------------------------------------------------------------
+# 1. Antenna arrays
+# ---------------------------------------------------------------------
+# bs_array = the SATELLITE's antenna array (name is a holdover from the
+# 38.901 terrestrial naming convention -> BS = satellite here).
+bs_array = PanelArray(num_rows_per_panel=4,
+                       num_cols_per_panel=4,
+                       polarization="dual",
+                       polarization_type="VH",
+                       antenna_pattern="38.901",
+                       carrier_frequency=3.5e9)   # only sets element spacing (lambda/2 default)
+
+# ut_array = your ground terminal's antenna.
+ut_array = PanelArray(num_rows_per_panel=1,
+                       num_cols_per_panel=1,
+                       polarization="single",
+                       polarization_type="V",
+                       antenna_pattern="omni",
+                       carrier_frequency=3.5e9)
+
+# ---------------------------------------------------------------------
+# 2. Channel model instance
+# ---------------------------------------------------------------------
+# carrier_frequency here is the ACTUAL link frequency and must fall in
+# S-band (1.9-4 GHz) or Ka-band (19-40 GHz) per TR38.811, or the
+# scenario class will reject it.
+carrier_frequency = 3.5e9
+elevation_angle = 50.0   # deg, 10-90; overrides the scenario default (80 deg).
+
+channel_model = Urban(carrier_frequency=carrier_frequency,
+                      # o2i_model="low",        # outdoor-to-indoor loss model;
+                                                # irrelevant while indoor_probability=0
+                       ut_array=ut_array,
+                       bs_array=bs_array,
+                       direction="downlink",elevation_angle=elevation_angle)    # "downlink": satellite -> UT (TX=bs_array)
+                                                 # "uplink":   UT -> satellite (TX=ut_array)
+
+# ---------------------------------------------------------------------
+# 3. Topology: ONE satellite, ONE UT, ONE static "drop"
+# ---------------------------------------------------------------------
+batch_size = 1   # number of INDEPENDENT parallel topology realizations,
+                  # not time steps -> keep at 1 for a single link
+num_ut = 1
+
+topology = gen_single_sector_topology(
+    batch_size=batch_size,
+    num_ut=num_ut,
+    scenario="urb",           # 'dur' (dense urban) | 'urb' (urban) | 'sur' (suburban)
+    elevation_angle=50.0,     # deg, 10-90; overrides the scenario default (80 deg).
+                               # LSP/pathloss tables are looked up at the NEAREST 10 deg.
+    # bs_height=None,         # leave None -> defaults to 600 000 m (LEO) for all 3 scenarios
+    # isd=None,               # inter-site distance, only matters for multi-UT/multi-cell drops
+    # min_ut_velocity=None,   # leave None -> UT is stationary (0 m/s) by scenario default
+    # max_ut_velocity=None,
+)
+ut_loc, bs_loc, ut_orientations, bs_orientations, ut_velocities, in_state = topology
+
+print("ut_loc          :", ut_loc.shape, ut_loc.numpy())
+print("bs_loc          :", bs_loc.shape, bs_loc.numpy())
+print("ut_velocities   :", ut_velocities.shape, ut_velocities.numpy())
+print("in_state (indoor):", in_state.shape, in_state.numpy())
+
+channel_model.set_topology(ut_loc, bs_loc, ut_orientations,
+                            bs_orientations, ut_velocities, in_state)
+
+# Quick visual sanity check (opens a matplotlib figure of the geometry)
+# channel_model.show_topology()
+
+# ---------------------------------------------------------------------
+# 4. Generate ONE channel impulse response (CIR) realization
+# ---------------------------------------------------------------------
+num_time_samples = 100        # samples along time: captures fast fading / Doppler
+                              # WITHIN this frozen-geometry snapshot
+sampling_frequency = 1e6     # Hz -> this snapshot spans 100 us of "real" time
+
+a, tau = channel_model(#batch_size=batch_size,
+                        num_time_samples=num_time_samples,
+                        sampling_frequency=sampling_frequency)
+
+print("a   (path coefficients) shape:", a.shape)
+print("tau (path delays) shape      :", tau.shape)
+
+# ---------------------------------------------------------------------
+# 5. Convert CIR -> discrete-time channel taps (for a link-level sim)
+# ---------------------------------------------------------------------
+bandwidth = 20e6
+l_min, l_max = time_lag_discrete_time_channel(bandwidth)
+h_time = cir_to_time_channel(bandwidth, a, tau, l_min=l_min, l_max=l_max,
+                              normalize=True)
+print("h_time (discrete channel taps) shape:", h_time.shape)
+
+print(np.allclose(a[..., 0].numpy(), a[..., 50].numpy()))   # expect True (or very close)
+
+
+# take one antenna pair, one cluster (e.g. the strongest), track phase over time
+tap = a[0, 0, 0, 0, 0, 0, :].numpy()      # [num_time_steps]
+phase = np.unwrap(np.angle(tap))
+dt = 1.0 / 1e6                             # your sampling_frequency
+doppler_est = np.polyfit(np.arange(len(phase)) * dt, phase, 1)[0] / (2*np.pi)
+print("Estimated Doppler [Hz]:", doppler_est)

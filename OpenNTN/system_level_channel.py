@@ -293,6 +293,10 @@ class SystemLevelChannel(ChannelModel):
             # To always draw a visible and not too big axes, we scale them
             # according to the spread of the network in each direction.
 
+            #print("loc:", loc)
+            #print("ort:", ort)
+            #print("delta:", delta)
+
             a = ort[0]
             b = ort[1]
             c = ort[2]
@@ -393,6 +397,7 @@ class SystemLevelChannel(ChannelModel):
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
         ax.set_zlabel(z_label)
+        #plt.show()
         plt.legend()
         plt.tight_layout()
 

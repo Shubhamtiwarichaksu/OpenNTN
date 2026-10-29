@@ -122,7 +122,7 @@ class Urban(SystemLevelChannel):
         a : [batch size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time_steps], tf.complex
             Path coefficients
 
-        tau : [batch size, num_rx, num_tx, num_paths], tf.float
+        tau : [batch size, num_rx, num_tx, nu_paths], tf.float
             Path delays [s]
     """
 

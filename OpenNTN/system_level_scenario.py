@@ -20,7 +20,7 @@ from .antenna import PanelArray
 import math
 
 from . import models # pylint: disable=relative-beyond-top-level
-
+import utils
 
 class SystemLevelScenario(Object):
     r"""
@@ -102,9 +102,10 @@ class SystemLevelScenario(Object):
             "The carrier frequencies of ut antenna, bs antenna and scenario must match"
         # data type
 
-        
+        tf.debugging.assert_greater_equal(elevation_angle, tf.constant(10.0, dtype=tf.float32), message="elevation angle must be >= 10 degrees")
+        tf.debugging.assert_less_equal(elevation_angle, tf.constant(90.0, dtype=tf.float32), message="elevation angle must be <= 90 degrees")
 
-        assert elevation_angle >= 10.0 and elevation_angle <= 90.0, "elevation angle must be in range [10,90]"
+        #assert elevation_angle >= 10.0 and elevation_angle <= 90.0, "elevation angle must be in range [10,90]"
         self._elevation_angle = elevation_angle
 
         # Pathloss and shadow fading
@@ -365,23 +366,23 @@ class SystemLevelScenario(Object):
     @property
     def num_clusters_los(self):
         r"""Number of clusters for LoS scenario"""
-        angle_str = str(round(self._elevation_angle/10.0)*10)
-        return self._params_los["numClusters_" + angle_str]
+        #angle_str = str(round(self._elevation_angle/10.0)*10)
+        return utils.lookup_by_elevation(self, self._params_los, "numClusters")
 
     @property
     def num_clusters_nlos(self):
         r"""Number of clusters for NLoS scenario"""
-        angle_str = str(round(self._elevation_angle/10.0)*10)
-        return self._params_nlos["numClusters_" + angle_str]
+        #angle_str = str(round(self._elevation_angle/10.0)*10)
+        return utils.lookup_by_elevation(self, self._params_nlos, "numClusters")
 
     @property
     def num_clusters_max(self):
         r"""Maximum number of clusters over LoS and NLoS scenarios"""
         # Different models have different number of clusters
-        angle_str = str(round(self._elevation_angle/10.0)*10)
-        num_clusters_los = self._params_los["numClusters_" + angle_str]
-        num_clusters_nlos = self._params_nlos["numClusters_" + angle_str]
-        num_clusters_max = tf.reduce_max([num_clusters_los, num_clusters_nlos])
+        #angle_str = str(round(self._elevation_angle/10.0)*10)
+        num_clusters_los = utils.lookup_by_elevation(self, self._params_los, "numClusters")
+        num_clusters_nlos = utils.lookup_by_elevation(self, self._params_nlos, "numClusters")
+        num_clusters_max = int(tf.round(tf.reduce_max([num_clusters_los, num_clusters_nlos])).numpy())
         return num_clusters_max
 
     @property
@@ -748,7 +749,7 @@ class SystemLevelScenario(Object):
                                             self.num_bs,
                                             self.num_ut],
                                             dtype=self.rdtype)
-
+        '''
         # Parameter value, rounds elevation angle to nearest table entry 
         if parameter_name not in ("CPhiNLoS", "CThetaNLoS"):
             angle_str = str(round(self._elevation_angle/10.0)*10)
@@ -757,6 +758,15 @@ class SystemLevelScenario(Object):
         else:
             parameter_value_los = self._params_los[parameter_name]
             parameter_value_nlos = self._params_nlos[parameter_name]
+        '''
+        if parameter_name not in ("CPhiNLoS", "CThetaNLoS"):
+            parameter_value_los  = utils.lookup_by_elevation(self, self._params_los,  parameter_name)
+            parameter_value_nlos = utils.lookup_by_elevation(self, self._params_nlos, parameter_name)
+        else:
+            parameter_value_los  = tf.cast(self._params_los[parameter_name],  self.rdtype)
+            parameter_value_nlos = tf.cast(self._params_nlos[parameter_name], self.rdtype)
+
+        return tf.where(self.los, parameter_value_los, parameter_value_nlos)
         # Expand to allow broadcasting with the BS dimension
         indoor = tf.expand_dims(self.indoor, axis=1)
         # LoS
@@ -803,21 +813,25 @@ class SystemLevelScenario(Object):
         # The 3D distance needs to take the curvature of Earth into account
         elevation_angle = self._elevation_angle
         #convert to radians for tf.math.sin later
-        elevation_angle = math.radians(elevation_angle)
+        #elevation_angle = math.radians(elevation_angle)
+        elevation_angle=tf.cast(elevation_angle, self.rdtype)*PI/180.0
         #Radius of the Earth
         R_E = 6371000
- 
-        #satellite height 
-        height_val = self._bs_loc[:,:,2][0]
+
+        #satellite height
+        #height_val = tf.expand_dims(self._bs_loc[:,:,2], axis=-1)
+        height_val = tf.fill([self.batch_size, self.num_bs,1], 600000.0)
         #Calculating the 3d distance based on 3GPP TR38.811 6.6-3 to consider the Earth's curveture
         distance_3d = (tf.sqrt(R_E**2 * tf.math.sin(elevation_angle)**2 + height_val**2 + 2*height_val*R_E) - R_E*tf.math.sin(elevation_angle))
+        #distance_3d=tf.tile(distance_3d, [1,1,self.num_ut])
+        #distance_3d=tf.sqrt(tf.square(delta_loc,axis=-1))
         #Expanding to correct shape
         # TODO there is a sometimes occuring bug at this point. The squeeze assumes there to be more than one user, which can run into issues. However,
         # this bug is not yet fully understood and seems to be limited to eager executions. For the future this needs to be fixed. This bug is also assumed
         # to cause the infinite GPU memory allocation in eager execution during the use of the LMMSEEqualizer. 
         # Additionally, tf.squeeze is used here, as distance_3d needs to be a tf.constant, but casting that directly lead to bugs. This workaround works well,
         # but should be replaced by a more straightforward solution in the future.
-        distance_3d = tf.fill([self.batch_size, self.num_bs, self.num_ut], tf.squeeze(distance_3d))
+        #distance_3d = tf.fill([self.batch_size, self.num_bs, self.num_ut], tf.squeeze(distance_3d))
         self._distance_3d = distance_3d
 
         # LoS AoA, AoD, ZoA, ZoD
@@ -870,6 +884,12 @@ class SystemLevelScenario(Object):
         indoor = tf.expand_dims(indoor, axis=1) # For broadcasting with BS dim
         indoor_mask = tf.where(indoor, tf.constant(1.0, self.rdtype),
             tf.constant(0.0, self.rdtype))
+        #print(f"indoor_mask", tf.shape(indoor_mask))
+        #print(f"ut_loc shape",tf.shape(self.ut_loc))
+        #print(f"bs_loc shape",tf.shape(self.bs_loc))
+        
+        # added this mask to cast properly to the correct dtype, as the indoor mask is used for multiplication with the distance values later on
+        #indoor_mask = tf.reshape(tf.broadcast_to(indoor_mask,[self.batch_size, self.num_bs*self.num_ut]),[self.batch_size, self.num_bs, self.num_ut])
 
         # Sample the indoor 2D distances for each BS-UT link
         self._distance_2d_in = tf.random.uniform(shape=[self.batch_size,

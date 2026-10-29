@@ -606,7 +606,8 @@ class ChannelCoefficientsGenerator(Object):
         exponent = 2*PI/lambda_0*tf.reduce_sum(r_hat_ut*v_uts_bar, -2)*t
 
         # Check if a satellite is used (height of satellite is at least 600km). This is done to potentially incorporate HAPS later
-        if tf.logical_and(tf.less_equal(600000.0, topology.bs_height), topology.doppler_enabled):
+        #if tf.logical_and(tf.less_equal(600000.0, topology.bs_height), topology.doppler_enabled):
+        if tf.logical_and(tf.reduce_any(tf.greater_equal(topology.bs_height, 300000.0)), topology.doppler_enabled):
             # We get the maximum speed of the satellite based on its orbit and the users elevation angle. This value is multiplied with a random constant between [cos(0),cos(2pi))
             # to simulate the random direction of the orbit in relation to the users. 
             max_sat_speed_for_elevation_angle = topology.sat_speed
@@ -872,7 +873,8 @@ class ChannelCoefficientsGenerator(Object):
         h_phase = self._step_11_phase_matrix(phi, rays)
 
         # Add Faraday phase rotation in NTN case
-        if tf.greater_equal(topology.bs_height, 600000.0):            
+        #if tf.greater_equal(topology.bs_height, 600000.0):    
+        if tf.reduce_any(tf.greater_equal(topology.bs_height, 300000.0)):        
             rays_shape = tf.shape(rays.aoa)
             faraday_phase_rotation = self._step_11_faraday_rotation(carrier_frequency=carrier_frequency, aod_shape=rays_shape)
             h_phase = tf.matmul(h_phase,faraday_phase_rotation)

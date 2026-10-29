@@ -181,7 +181,7 @@ class RaysGenerator(Object):
     ########################################
     # Internal utility methods
     ########################################
-
+    '''
     def _compute_clusters_mask(self):
         """
         Given a scenario (DenseUrban, Urban, or SubUrban), the number of clusters is different
@@ -253,6 +253,29 @@ class RaysGenerator(Object):
 
         # Save the mask
         self._cluster_mask = mask
+    '''
+    def _compute_clusters_mask(self):
+        scenario = self._scenario
+        shape3 = [scenario.batch_size, scenario.num_bs, scenario.num_ut]
+
+        def to_count(x):
+            # lookup returns rdtype -> round -> int32, forced to [B, nb, nu]
+            x = tf.cast(tf.round(tf.cast(x, self.rdtype)), tf.int32)
+            return tf.reshape(x, shape3)
+
+        n_los  = to_count(scenario.num_clusters_los)
+        n_nlos = to_count(scenario.num_clusters_nlos)
+        n_o2i  = tf.zeros_like(n_nlos)      # no O2I in NTN yet, same placeholder as before
+
+        # python int: must be identical to the cluster dim used everywhere else in this file
+        num_clusters_max = scenario.num_clusters_max
+
+        indoor = tf.expand_dims(scenario.indoor, axis=1)           # [B,1,nu]
+        n = tf.where(indoor, n_o2i, tf.where(scenario.los, n_los, n_nlos))   # [B,nb,nu]
+
+        idx = tf.range(num_clusters_max, dtype=tf.int32)            # [max_c]
+        # 1.0 where cluster index >= number of clusters of this link (unused), else 0.0
+        self._cluster_mask = tf.cast(idx >= n[..., tf.newaxis], self.rdtype)  # [B,nb,nu,max_c]
 
     def _cluster_delays(self, delay_spread, rician_k_factor):
         # pylint: disable=line-too-long

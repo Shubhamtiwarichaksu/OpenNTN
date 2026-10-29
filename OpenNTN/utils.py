@@ -1187,8 +1187,12 @@ def gen_single_sector_topology( batch_size,
                                             precision)
     ut_loc, ut_orientations, ut_velocities, in_state = ut_topology
 
-    return ut_loc, bs_loc, ut_orientations, bs_orientation, ut_velocities,\
-            in_state
+    return {"ut_loc": ut_loc, 
+            "bs_loc": bs_loc, 
+            "ut_orientations": ut_orientations, 
+            "bs_orientation": bs_orientation, 
+            "ut_velocities": ut_velocities,
+            "in_state": in_state}
 
 #TODO currently unused in NTN cases. A future version will include these as well.
 def gen_single_sector_topology_interferers( batch_size,
@@ -1391,7 +1395,7 @@ def gen_single_sector_topology_interferers( batch_size,
                                             indoor_probability,
                                             min_ut_velocity,
                                             max_ut_velocity,
-                                            dtype)
+                                            dtype=tf.float32)
     ut_loc, ut_orientations, ut_velocities, in_state = ut_topology
 
 
@@ -1683,11 +1687,11 @@ def compute_pathloss_gas(self):
         Ao=Yo*ho
             
         # Calculate the total gases attenuation for the given elevation
-        Elev = self._elevation_angle
-        Atotx = (Ao + Aw) / tf.math.sin(math.radians(Elev))
+        Elev = tf.cast(self._elevation_angle, self.rdtype)
+        Atotx = tf.cast(Ao + Aw, self.rdtype) / tf.math.sin(deg_2_rad(Elev))
         GasAtt = abs(Atotx)
 
-        pl_g = tf.zeros(shape = tf.shape(self.los)) + GasAtt
+        pl_g = tf.zeros(shape = tf.shape(self.los), dtype=self.rdtype) + GasAtt
 
         self._pl_g = pl_g
             
@@ -1716,9 +1720,10 @@ def compute_pathloss_scintilation(self):
 
             #  Calculate the effective path length
             hL = 1000 # Height of turbulent layer in meters
-            Elev = self._elevation_angle
-            L = (2 * hL) / (tf.math.sqrt(tf.math.sin(math.radians(Elev))**2 + 2.35e-4 + tf.math.sin(math.radians(Elev))))
-                
+            #Elev = self._elevation_angle
+            Elev= tf.cast(self._elevation_angle,self.rdtype)
+            L = (2 * hL) / (tf.math.sqrt(tf.math.sin(deg_2_rad(Elev))**2 + 2.35e-4 + tf.math.sin(deg_2_rad(Elev))))
+
             # Step 5: Calculate the effective antenna diameter
             D = self._diameter_earth_antenna # antenna diameter in meters
             efficiency = self._antenna_efficiency # Antenna efficiency
@@ -1729,7 +1734,7 @@ def compute_pathloss_scintilation(self):
             g = tf.math.sqrt(3.86 * (x**2 + 1)**(11/12) * tf.math.sin((11/6) * tf.math.atan(1/x)) - 7.08 * x**(5/6))
 
             # Step 7: Calculate the standard deviation of the signal for the period and propagation path
-            g_x = (ref * f**(7/12) * g) / (math.sin(math.radians(Elev))**1.2)
+            g_x = (ref * f**(7/12) * g) / (math.sin(deg_2_rad(Elev))**1.2)
             # Step 8: Calculate the time percentage factor
             p = 0.01 # Time percentage in #
             a_p = -0.061 * (math.log10(p))**3 + 0.072 * (math.log10(p))**2 - 1.71 * math.log10(p) + 3.0
@@ -1738,7 +1743,7 @@ def compute_pathloss_scintilation(self):
             TroScin = a_p * g_x
 
             TScin=abs(TroScin)
-            pl_s = tf.zeros(shape = tf.shape(self.los)) + TScin
+            pl_s = tf.zeros(shape = tf.shape(self.los), dtype=self.rdtype) + tf.cast(TScin, self.rdtype)
             self._pl_s = pl_s
             
         #For carrier frequencies below 6GHz we only consider Ionospheric scintillation    
@@ -1766,16 +1771,19 @@ def compute_pathloss_basic(self):
         r"""Computes the basic pathloss based on TR38.811 6.6-1 in dB."""
         distance_3d = self._distance_3d
         fc = self._carrier_frequency/(10**9)
-        angle_str = str(round(self._elevation_angle/10.0)*10)
+        #angle_str = str(round(self._elevation_angle/10.0)*10)
 
         fspl = 32.45 + 20*log10(fc) + 20*log10(distance_3d)
         self._fspl = fspl
-        cl = self._params_nlos["CL" + '_' + angle_str]
-        sigmaSF_los = self._params_los["sigmaSF" + '_' + angle_str]
-        sigmaSF_nlos = self._params_nlos["sigmaSF" + '_' + angle_str]
+        #cl = self._params_nlos["CL" + '_' + angle_str]
+        #sigmaSF_los = self._params_los["sigmaSF" + '_' + angle_str]
+        #sigmaSF_nlos = self._params_nlos["sigmaSF" + '_' + angle_str]
+        cl=lookup_by_elevation(self,self._params_nlos,"CL")
+        sigmaSF_los=lookup_by_elevation(self,self._params_los,"sigmaSF")
+        sigmaSF_nlos=lookup_by_elevation(self,self._params_nlos,"sigmaSF")
 
-        SF_los = tf.random.normal(shape = tf.shape(self.los), mean = 0.0, stddev = sigmaSF_los)
-        SF_nlos = tf.random.normal(shape = tf.shape(self.los), mean = 0.0, stddev = sigmaSF_nlos)
+        SF_los = tf.random.normal(shape = tf.shape(self.los), mean = 0.0, stddev = sigmaSF_los,dtype=self.rdtype)
+        SF_nlos = tf.random.normal(shape = tf.shape(self.los), mean = 0.0, stddev = sigmaSF_nlos,dtype=self.rdtype)
 
         pl_los = fspl + SF_los
         pl_nlos = fspl + SF_nlos + cl
@@ -1998,3 +2006,14 @@ def compute_stallite_doppler(h_sat, elevation_angle, carrier_frequency):
         additional_doppler_shift_811 = (v_sat/v_light) * ((r_earth/(r_earth+h_sat)) * np.cos(np.deg2rad(elevation_angle))) * carrier_frequency
 
         return additional_doppler_shift_811 + carrier_frequency
+    
+# newly added 
+def lookup_by_elevation(self, params, name):
+    """Per-link table lookup 'name_<angle>' -> [B, num_bs, num_ut] (nearest table angle)."""
+    shape = tuple(self._distance_2d.shape)
+    el = np.broadcast_to(np.asarray(self._elevation_angle, dtype=np.float64), shape)
+    pre = name + "_"
+    angles = np.array(sorted(int(k[len(pre):]) for k in params
+                             if k.startswith(pre) and k[len(pre):].isdigit()))
+    vals = np.array([float(params[pre + str(a)]) for a in angles])   # keeps -inf entries
+    return tf.constant(vals[np.argmin(np.abs(el[..., None] - angles), axis=-1)], self.rdtype)

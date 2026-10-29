@@ -119,6 +119,7 @@ class UrbanScenario(SystemLevelScenario):
         r"""Average building height [m]"""
         return self._average_building_height
 
+    '''
     @property
     def los_probability(self):
         r"""Probability of each UT to be LoS. Used to generate LoS
@@ -127,6 +128,7 @@ class UrbanScenario(SystemLevelScenario):
         Taken from table 6.6.1-1 in TR38.811
 
         [batch size, num_ut]"""
+        # new version accept num_bs and num_ut so size should be [batch size, num_bs,num_ut]
         angle_str = str(round(self._elevation_angle/10.0)*10)
         los_p = self._params_los["LoS_p" + '_' + angle_str]
         #self._distance_2d_out already has desired shape, this it is used here to keep the code shorter
@@ -134,6 +136,30 @@ class UrbanScenario(SystemLevelScenario):
         los_probability = tf.zeros(shape = tf.shape(self._distance_2d_out)) + los_p
         
         return los_probability
+    '''  
+    # temporary I have created this los_probability function in order to cater the tensor of elevation angle
+    # in order to check the lool up table against varied el
+    @property
+    def los_probability(self):
+        out_shape = tuple(self._distance_2d_out.shape)            # [B, nb, nu]
+
+        # tensor -> numpy, broadcast so a scalar angle still works
+        el = np.broadcast_to(np.asarray(self._elevation_angle, dtype=np.float64),
+                            out_shape)
+
+        # available table angles, parsed from the JSON keys "LoS_p_<angle>"
+        angles = np.array(sorted(int(k.split("_")[-1]) for k in self._params_los
+                                if k.startswith("LoS_p_")))
+
+        # nearest table angle for every link -> same shape as el
+        angle_grid = angles[np.argmin(np.abs(el[..., None] - angles), axis=-1)]
+
+        # direct lookup, element by element
+        los_p = np.empty(out_shape, dtype=np.float64)
+        for idx in np.ndindex(*out_shape):
+            los_p[idx] = float(self._params_los["LoS_p_" + str(angle_grid[idx])])
+
+        return tf.constant(los_p, dtype=self.rdtype)
 
     @property
     def rays_per_cluster(self):

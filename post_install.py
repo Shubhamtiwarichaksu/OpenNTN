@@ -14,6 +14,17 @@ def modify_vanilla_sionna():
         sionna_channel_path = framework_path + "/sionna/phy/channel"
         channel_init_file_path = sionna_channel_path + "/__init__.py"
 
+
+        # Create tr38811 link
+        openntn_path = str(Path(__file__).parent / "OpenNTN")
+        tr38811_path = os.path.join(sionna_channel_path, "tr38811")
+
+        if os.path.exists(tr38811_path):
+            print("tr38811 already exists:", tr38811_path)
+        else:
+            os.symlink(openntn_path, tr38811_path)
+            print("Created tr38811 link:", tr38811_path)
+
         line_to_add = 'from . import tr38811'
         preceding_line = 'from . import tr38901'
 
