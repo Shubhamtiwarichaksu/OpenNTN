@@ -71,22 +71,22 @@ print("Satellite Locations at t=1s:", bs_loc_tensor)
 print("Elevation Angle at t=1s:", elevation_angle)
 #bs_loc_tensor= bs_loc_tensor[0:1, 0:1, :]    # Ensure shape is 1,1,3
 
-elevation_angle= tf.constant(50.0, dtype=tf.float32)  # Example elevation angle in degrees
+#elevation_angle= tf.constant(50.0, dtype=tf.float32)  # Example elevation angle in degrees
 
 
 channel_model = Urban(carrier_frequency=carrier_frequency, ut_array=ut_array, bs_array=bs_array, direction="downlink", elevation_angle=elevation_angle)
 
 
 
-print("ut_loc from system_level_scenario:", channel_model._scenario.ut_loc)
-print("bs_loc from system_level_scenario:", channel_model._scenario.bs_loc)
-print("ut_orientations from system_level_scenario:", channel_model._scenario.ut_orientations)
-print("Scenario type:", type(channel_model._scenario))
-print("Has _lsp_log_mean:", hasattr(channel_model._scenario, "_lsp_log_mean"))
-print("Has _lsp_log_std:", hasattr(channel_model._scenario, "_lsp_log_std"))
+#print("ut_loc from system_level_scenario:", channel_model._scenario.ut_loc)
+#print("bs_loc from system_level_scenario:", channel_model._scenario.bs_loc)
+#print("ut_orientations from system_level_scenario:", channel_model._scenario.ut_orientations)
+#print("Scenario type:", type(channel_model._scenario))
+#print("Has _lsp_log_mean:", hasattr(channel_model._scenario, "_lsp_log_mean"))
+#print("Has _lsp_log_std:", hasattr(channel_model._scenario, "_lsp_log_std"))
 # print("LSP Log Mean:", channel_model._scenario.lsp_log_mean())
 
-'''
+
 channel_model.set_topology(ut_loc=ut_loc_tensor,
                           bs_loc=bs_loc_tensor,
                           ut_orientations=ut_orientations,
@@ -161,12 +161,12 @@ spatial_sqrt = channel_model._lsp_sampler._spatial_lsp_correlation_matrix_sqrt
 print("Spatial Correlation Cholesky Matrix Shape:", spatial_sqrt.shape)
 # Shape: [batch, num_bs, 7, num_ut, num_ut] or [batch, num_bs, num_ut, num_ut]
 
-# a,tau=channel_model(num_time_samples=100, sampling_frequency=1e6)
+#a,tau=channel_model(num_time_samples=100, sampling_frequency=1e6)
 #print("a:", tf.shape(a))
 #print("tau:", tf.shape(tau))
 #show_3d_topology=channel_model.show_topology(bs_index=0, batch_index=0)
 #plt.show()
-'''
+
 '''
 channel_model = Urban(carrier_frequency=2.4e9, ut_array=ut_array, bs_array=bs_array, direction="downlink", elevation_angle=50.0)
 
