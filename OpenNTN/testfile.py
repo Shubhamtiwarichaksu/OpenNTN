@@ -8,5 +8,12 @@ import mitsuba
 print("Mitsuba version:", mitsuba.__version__)
 import drjit
 print("DrJIT version:", drjit.__version__)
-from sionna import OpenNTN
-print("OpenNTN version:", OpenNTN.__version__)
+
+from sionna.phy.channel import tr38811
+
+print("OpenNTN integration:", tr38811.__file__)
+print("OpenNTN successfully initialized!")
+
+#from sionna import OpenNTN
+#print("OpenNTN version:", OpenNTN.__version__)
+

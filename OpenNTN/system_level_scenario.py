@@ -20,7 +20,8 @@ from .antenna import PanelArray
 import math
 
 from . import models # pylint: disable=relative-beyond-top-level
-import utils
+#import utils
+from . import utils
 
 class SystemLevelScenario(Object):
     r"""
